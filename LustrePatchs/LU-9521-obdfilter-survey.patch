@@ -1,0 +1,40 @@
+From ae9d3bed51df1dfee7209ba2c2bc235504bc98d0 Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Wed, 17 May 2017 18:29:46 +0530
+Subject: [PATCH] LU-9521 tests: Avoid cleanup() being called twice.
+
+/usr/bin/*-survey when ran,
+- calls cleanup() twice, resulting in non-zero exit status,
+- and attempts to cleanup already cleaned/detached echo client,
+  resulting in invalid argument.
+
+This patch fixes the same.
+
+Test-Parameters: trivial testlist=obdfilter-survey
+Signed-off-by: Parinay Kondekar <Parinay.Kondekar@seagate.com>
+Change-Id: I5bb1fe5d7e6adf15e81d88501d6edbda1c5ef3c3
+Reviewed-on: https://review.whamcloud.com/27160
+Tested-by: Jenkins
+Reviewed-by: Andreas Dilger <andreas.dilger@intel.com>
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: Bob Glossman <bob.glossman@intel.com>
+---
+ lustre-iokit/obdfilter-survey/iokit-libecho | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/lustre-iokit/obdfilter-survey/iokit-libecho b/lustre-iokit/obdfilter-survey/iokit-libecho
+index e194b6b891..92b96945d6 100644
+--- a/lustre-iokit/obdfilter-survey/iokit-libecho
++++ b/lustre-iokit/obdfilter-survey/iokit-libecho
+@@ -213,6 +213,8 @@ cleanup_network () {
+ 
+ # do cleanup and exit.
+ cleanup () {
++	trap 0
++
+ 	local exit_status=$1
+ 	local host
+ 
+-- 
+2.17.1
+

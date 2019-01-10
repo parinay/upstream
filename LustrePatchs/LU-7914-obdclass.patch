@@ -1,0 +1,98 @@
+From 80a9ca6385fc8df64fa9f7fbd8fa14dfb40a609f Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Tue, 5 Jul 2016 21:03:03 -0400
+Subject: [PATCH] LU-7914 obdclass: Removed unused reference of
+ cl_page_list_own()
+
+cl_page_list_own() is unused and thus could be removed altogether.
+
+Change-Id: I57c88a484f5d624e413d1b555473819f8785dd05
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Reviewed-on: http://review.whamcloud.com/20886
+Tested-by: Jenkins
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: Dmitry Eremin <dmitry.eremin@intel.com>
+Reviewed-by: James Simmons <uja.ornl@yahoo.com>
+Reviewed-by: Frank Zago <fzago@cray.com>
+Reviewed-by: Oleg Drokin <oleg.drokin@intel.com>
+---
+ lustre/include/cl_object.h |  4 ----
+ lustre/obdclass/cl_io.c    | 23 -----------------------
+ lustre/obdclass/cl_page.c  |  4 ++--
+ 3 files changed, 2 insertions(+), 29 deletions(-)
+
+diff --git a/lustre/include/cl_object.h b/lustre/include/cl_object.h
+index f50fee7b7e..dc33a438ed 100644
+--- a/lustre/include/cl_object.h
++++ b/lustre/include/cl_object.h
+@@ -714,8 +714,6 @@ enum cl_page_type {
+ struct cl_page {
+ 	/** Reference counter. */
+ 	atomic_t		 cp_ref;
+-	/** Transfer error. */
+-	int                      cp_error;
+ 	/** An object this page is a part of. Immutable after creation. */
+ 	struct cl_object	*cp_obj;
+ 	/** vmpage */
+@@ -2364,8 +2362,6 @@ void cl_page_list_del    (const struct lu_env *env,
+                           struct cl_page_list *plist, struct cl_page *page);
+ void cl_page_list_disown (const struct lu_env *env,
+                           struct cl_io *io, struct cl_page_list *plist);
+-int  cl_page_list_own    (const struct lu_env *env,
+-                          struct cl_io *io, struct cl_page_list *plist);
+ void cl_page_list_assume (const struct lu_env *env,
+                           struct cl_io *io, struct cl_page_list *plist);
+ void cl_page_list_discard(const struct lu_env *env,
+diff --git a/lustre/obdclass/cl_io.c b/lustre/obdclass/cl_io.c
+index 5728ac04ba..602b5ac968 100644
+--- a/lustre/obdclass/cl_io.c
++++ b/lustre/obdclass/cl_io.c
+@@ -1008,29 +1008,6 @@ void cl_page_list_fini(const struct lu_env *env, struct cl_page_list *plist)
+ }
+ EXPORT_SYMBOL(cl_page_list_fini);
+ 
+-/**
+- * Owns all pages in a queue.
+- */
+-int cl_page_list_own(const struct lu_env *env,
+-		     struct cl_io *io, struct cl_page_list *plist)
+-{
+-	struct cl_page *page;
+-	struct cl_page *temp;
+-	int result;
+-
+-	LINVRNT(plist->pl_owner == current);
+-
+-	ENTRY;
+-	result = 0;
+-	cl_page_list_for_each_safe(page, temp, plist) {
+-		if (cl_page_own(env, io, page) == 0)
+-			result = result ?: page->cp_error;
+-		else
+-			cl_page_list_del(env, plist, page);
+-	}
+-	RETURN(result);
+-}
+-
+ /**
+  * Assumes all pages in a queue.
+  */
+diff --git a/lustre/obdclass/cl_page.c b/lustre/obdclass/cl_page.c
+index 9eb79629c5..65cf9feb9d 100644
+--- a/lustre/obdclass/cl_page.c
++++ b/lustre/obdclass/cl_page.c
+@@ -1012,9 +1012,9 @@ void cl_page_header_print(const struct lu_env *env, void *cookie,
+                           lu_printer_t printer, const struct cl_page *pg)
+ {
+ 	(*printer)(env, cookie,
+-		   "page@%p[%d %p %d %d %d %p]\n",
++		   "page@%p[%d %p %d %d %p]\n",
+ 		   pg, atomic_read(&pg->cp_ref), pg->cp_obj,
+-		   pg->cp_state, pg->cp_error, pg->cp_type,
++		   pg->cp_state, pg->cp_type,
+ 		   pg->cp_owner);
+ }
+ EXPORT_SYMBOL(cl_page_header_print);
+-- 
+2.17.1
+

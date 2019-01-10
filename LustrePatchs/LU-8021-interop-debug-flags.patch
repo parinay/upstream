@@ -1,0 +1,91 @@
+From 77ae71b56e1ed44a0a80a95c465dafd1f41d2e86 Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Mon, 20 Jun 2016 13:24:47 +0530
+Subject: [PATCH] LU-8021 tests: In interop, ensure to save/restore correct
+ debug flags
+
+debugsave() and debugrestore() in test-framework.sh save the
+same debug flags of the client on servers as well.
+
+In case of interop, esp between lustre 2.1.x server and
+2.5.x clients, with PTLDEBUG=-1 the debugrestore() would fail as
+there are some flags which are newly added to 2.5.x,
+    e.g. "lfsck, hsm" are not defined on 2.1.x servers.
+
+- The fix, makes sure to save the debug flags for servers and clients
+separately and thus restore correctly.
+
+- It restores the debug flags irrespective of, if the server node
+is active or passive, failover node.
+
+- It takes care,
+	if any of the node(server OR client) is down or unreachable,
+	if there are separate MDS MGS servers,
+	if any of the node is rebooted (FAILURE_MODE=hard)
+	but lustre modules are not loaded.
+
+Also, there is defect introduced by LU-4480 in reset_fail_loc,
+this patch fixes that as well.
+
+
+Seagate-bug-id: MRP-1959
+Change-Id: I6c6142cc113f8131bb89e6dc313215440f2242b9
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Reviewed-by: Elena Gryaznova <elena.gryaznova@seagate.com>
+Reviewed-by: Ujjwal Lanjewar <ujjwal.lanjewar@seagate.com>
+Reviewed-on: http://review.whamcloud.com/19604
+Tested-by: Jenkins
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: Andreas Dilger <andreas.dilger@intel.com>
+---
+ lustre/tests/test-framework.sh | 24 ++++++++++++++++--------
+ 1 file changed, 16 insertions(+), 8 deletions(-)
+
+diff --git a/lustre/tests/test-framework.sh b/lustre/tests/test-framework.sh
+index 7efae3ac72..8b76c77fba 100755
+--- a/lustre/tests/test-framework.sh
++++ b/lustre/tests/test-framework.sh
+@@ -4686,13 +4686,21 @@ pgcache_empty() {
+ }
+ 
+ debugsave() {
+-    DEBUGSAVE="$(lctl get_param -n debug)"
++	DEBUGSAVE="$(lctl get_param -n debug)"
++	DEBUGSAVE_SERVER=$(do_facet $SINGLEMDS "$LCTL get_param -n debug")
+ }
+ 
+ debugrestore() {
+-    [ -n "$DEBUGSAVE" ] && \
+-        do_nodes $(comma_list $(nodes_list)) "$LCTL set_param debug=\\\"${DEBUGSAVE}\\\";"
+-    DEBUGSAVE=""
++	[ -n "$DEBUGSAVE" ] &&
++		do_nodes $CLIENTS "$LCTL set_param debug=\\\"${DEBUGSAVE}\\\""||
++		true
++	DEBUGSAVE=""
++
++	[ -n "DEBUGSAVE_SERVER" ] &&
++		do_nodes $(comma_list $(all_server_nodes)) \
++			 "$LCTL set_param debug=\\\"${DEBUGSAVE_SERVER}\\\"" ||
++			 true
++	DEBUGSAVE_SERVER=""
+ }
+ 
+ debug_size_save() {
+@@ -4995,10 +5003,10 @@ check_mds() {
+ }
+ 
+ reset_fail_loc () {
+-    echo -n "Resetting fail_loc on all nodes..."
+-    do_nodes $(comma_list $(nodes_list)) "lctl set_param -n fail_loc=0 \
+-	    fail_val=0 2>/dev/null || true"
+-    echo done.
++	echo -n "Resetting fail_loc on all nodes..."
++	do_nodes $(comma_list $(nodes_list)) "lctl set_param -n fail_loc=0 \
++	    fail_val=0 2>/dev/null" || true
++	echo done.
+ }
+ 
+ 
+-- 
+2.17.1
+

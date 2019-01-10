@@ -1,0 +1,88 @@
+From 7151367afdb04562f016c3002f0c614004552ad6 Mon Sep 17 00:00:00 2001
+From: Kyrylo Shatskyy <kyrylo.shatskyy@seagate.com>
+Date: Wed, 13 Apr 2016 11:59:32 +0530
+Subject: [PATCH] LU-7130 test: sanity/162 doesn't handle DIR values properly
+
+The test fails when path values have trailing slash,
+e.g. DIR=/mnt/lustre/
+
+The patch adds validation which at the moment processes
+these parameters-DIR, DIR1, DIR2, MOUNT, MOUNT1, MOUNT2.
+
+Change-Id: Ief85e8798911cb67b4dafce985a9e4ef56cc26a4
+Signed-off-by: Kyrylo Shatskyy <kyrylo.shatskyy@seagate.com>
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Seagate-bug-id: MRP-334
+Reviewed-on: http://es-gerrit.xyus.xyratex.com:8080/#/c/269
+Tested-by: Jenkins
+Reviewed-by: Andrew Perepechko <Andrew_Perepechko@xyratex.com>
+Reviewed-by: Alexander Lezhoev <Alexander_Lezhoev@xyratex.com>
+Tested-by: Alexander Lezhoev <Alexander_Lezhoev@xyratex.com>
+Reviewed-by: Vitaly Fertman <Vitaly_Fertman@xyratex.com>
+Reviewed-on: http://review.whamcloud.com/16358
+Reviewed-by: James Nunez <james.a.nunez@intel.com>
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: Andreas Dilger <andreas.dilger@intel.com>
+Reviewed-by: Oleg Drokin <oleg.drokin@intel.com>
+---
+ lustre/tests/test-framework.sh | 32 +++++++++++++++++++++-----------
+ 1 file changed, 21 insertions(+), 11 deletions(-)
+
+diff --git a/lustre/tests/test-framework.sh b/lustre/tests/test-framework.sh
+index 6c309d127b..7a9cb6ba0e 100755
+--- a/lustre/tests/test-framework.sh
++++ b/lustre/tests/test-framework.sh
+@@ -54,16 +54,25 @@ fi
+ [ -z "$MODPROBECONF" -a -f /etc/modprobe.conf ] &&
+     MODPROBECONF=/etc/modprobe.conf
+ 
++sanitize_parameters() {
++	for i in DIR DIR1 DIR2 MOUNT MOUNT1 MOUNT2
++	do
++		local path=${!i}
++		if [ -d "$path" ]; then
++			eval export $i=$(echo $path | sed -E 's/\/+$//g')
++		fi
++	done
++}
+ assert_DIR () {
+-    local failed=""
+-    [[ $DIR/ = $MOUNT/* ]] || \
+-        { failed=1 && echo "DIR=$DIR not in $MOUNT. Aborting."; }
+-    [[ $DIR1/ = $MOUNT1/* ]] || \
+-        { failed=1 && echo "DIR1=$DIR1 not in $MOUNT1. Aborting."; }
+-    [[ $DIR2/ = $MOUNT2/* ]] || \
+-        { failed=1 && echo "DIR2=$DIR2 not in $MOUNT2. Aborting"; }
++	local failed=""
++	[[ $DIR/ = $MOUNT/* ]] ||
++		{ failed=1 && echo "DIR=$DIR not in $MOUNT. Aborting."; }
++	[[ $DIR1/ = $MOUNT1/* ]] ||
++		{ failed=1 && echo "DIR1=$DIR1 not in $MOUNT1. Aborting."; }
++	[[ $DIR2/ = $MOUNT2/* ]] ||
++		{ failed=1 && echo "DIR2=$DIR2 not in $MOUNT2. Aborting"; }
+ 
+-    [ -n "$failed" ] && exit 99 || true
++	[ -n "$failed" ] && exit 99 || true
+ }
+ 
+ usage() {
+@@ -3975,12 +3984,13 @@ is_empty_fs() {
+ }
+ 
+ check_and_setup_lustre() {
+-    nfs_client_mode && return
++	sanitize_parameters
++	nfs_client_mode && return
+ 	cifs_client_mode && return
+ 
+-    local MOUNTED=$(mounted_lustre_filesystems)
++	local MOUNTED=$(mounted_lustre_filesystems)
+ 
+-    local do_check=true
++	local do_check=true
+     # 1.
+     # both MOUNT and MOUNT2 are not mounted
+     if ! is_mounted $MOUNT && ! is_mounted $MOUNT2; then
+-- 
+2.17.1
+

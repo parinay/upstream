@@ -1,0 +1,539 @@
+From 0d7a6d1d8df4756aa791f3574dc36ed01c4bbf36 Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Wed, 23 Dec 2015 21:20:17 -0500
+Subject: [PATCH] LU-5844 get rid of IOC_LIBCFS_MEMHOG and IOC_LIBCFS_PANIC
+ ioctls
+
+Removing unused IOC_LIBCFS_MEMHOG and IOC_LIBCFS_PANIC ioctls
+from the libcfs/ lnet/ code. This cleanup allows us to remove
+the cfs_psdev abstraction.
+
+Change-Id: Ifa9b444279f10f0dedf6e31d9f55a5c8cdc6f1af
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Signed-off-by: James Simmons <uja.ornl@yahoo.com>
+Reviewed-on: http://review.whamcloud.com/17492
+Tested-by: Jenkins
+Reviewed-by: Andreas Dilger <andreas.dilger@intel.com>
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: Dmitry Eremin <dmitry.eremin@intel.com>
+Reviewed-by: John L. Hammond <john.hammond@intel.com>
+Reviewed-by: Oleg Drokin <oleg.drokin@intel.com>
+---
+ libcfs/include/libcfs/libcfs.h         |  26 +---
+ libcfs/include/libcfs/libcfs_ioctl.h   |   5 +-
+ libcfs/include/libcfs/libcfs_private.h |   6 -
+ libcfs/libcfs/linux/linux-module.c     |  64 +++------
+ libcfs/libcfs/module.c                 | 172 +------------------------
+ lnet/include/lnet/lnetctl.h            |   2 -
+ lnet/utils/debug.c                     |  25 ----
+ lnet/utils/portals.c                   |  43 -------
+ lustre/utils/lctl.c                    |   3 -
+ 9 files changed, 19 insertions(+), 327 deletions(-)
+
+diff --git a/libcfs/include/libcfs/libcfs.h b/libcfs/include/libcfs/libcfs.h
+index d02ec25aac..550e682e10 100644
+--- a/libcfs/include/libcfs/libcfs.h
++++ b/libcfs/include/libcfs/libcfs.h
+@@ -154,31 +154,7 @@ void lc_watchdog_delete(struct lc_watchdog *lcw);
+ #define LNET_ACCEPTOR_MIN_RESERVED_PORT    512
+ #define LNET_ACCEPTOR_MAX_RESERVED_PORT    1023
+ 
+-/*
+- * libcfs pseudo device operations
+- *
+- * struct struct miscdevice and
+- * misc_register() and
+- * misc_deregister() are declared in
+- * libcfs/<os>/<os>-prim.h
+- *
+- * It's just draft now.
+- */
+-
+-struct cfs_psdev_file {
+-        unsigned long   off;
+-        void            *private_data;
+-        unsigned long   reserved1;
+-        unsigned long   reserved2;
+-};
+-
+-struct cfs_psdev_ops {
+-	int (*p_open)(unsigned long, void *);
+-	int (*p_close)(unsigned long, void *);
+-	int (*p_read)(struct cfs_psdev_file *, char *, unsigned long);
+-	int (*p_write)(struct cfs_psdev_file *, char *, unsigned long);
+-	int (*p_ioctl)(struct cfs_psdev_file *, unsigned long, void __user *);
+-};
++int libcfs_ioctl(unsigned long cmd, void __user *uparam);
+ 
+ /*
+  * Drop into debugger, if possible. Implementation is provided by platform.
+diff --git a/libcfs/include/libcfs/libcfs_ioctl.h b/libcfs/include/libcfs/libcfs_ioctl.h
+index 1ed8766896..7636fd8b69 100644
+--- a/libcfs/include/libcfs/libcfs_ioctl.h
++++ b/libcfs/include/libcfs/libcfs_ioctl.h
+@@ -105,14 +105,13 @@ do {							\
+ #define LIBCFS_IOC_DEBUG_MASK             _IOWR('f', 250, long)
+ #define IOCTL_LIBCFS_TYPE		  long
+ 
+-/* ioctls for manipulating snapshots 30- */
+ #define IOC_LIBCFS_TYPE				      ('e')
+ #define IOC_LIBCFS_MIN_NR			      30
+ /* libcfs ioctls */
+-#define IOC_LIBCFS_PANIC                   _IOWR('e', 30, IOCTL_LIBCFS_TYPE)
++/* IOC_LIBCFS_PANIC obsolete in 2.8.0, was _IOWR('e', 30, IOCTL_LIBCFS_TYPE) */
+ #define IOC_LIBCFS_CLEAR_DEBUG             _IOWR('e', 31, IOCTL_LIBCFS_TYPE)
+ #define IOC_LIBCFS_MARK_DEBUG              _IOWR('e', 32, IOCTL_LIBCFS_TYPE)
+-#define IOC_LIBCFS_MEMHOG                  _IOWR('e', 36, IOCTL_LIBCFS_TYPE)
++/* IOC_LIBCFS_MEMHOG obsolete in 2.8.0, was _IOWR('e', 36, IOCTL_LIBCFS_TYPE) */
+ /* lnet ioctls */
+ #define IOC_LIBCFS_GET_NI		   _IOWR('e', 50, IOCTL_LIBCFS_TYPE)
+ #define IOC_LIBCFS_FAIL_NID		   _IOWR('e', 51, IOCTL_LIBCFS_TYPE)
+diff --git a/libcfs/include/libcfs/libcfs_private.h b/libcfs/include/libcfs/libcfs_private.h
+index 09ae277fda..b4aeac6bd9 100644
+--- a/libcfs/include/libcfs/libcfs_private.h
++++ b/libcfs/include/libcfs/libcfs_private.h
+@@ -438,12 +438,6 @@ do {                                                            \
+ # define CFS_CURRENT_TIME time(0)
+ #endif
+ 
+-struct libcfs_device_userstate
+-{
+-	int		ldu_memhog_pages;
+-	struct page	*ldu_memhog_root_page;
+-};
+-
+ /* what used to be in portals_lib.h */
+ #ifndef MIN
+ # define MIN(a,b) (((a)<(b)) ? (a): (b))
+diff --git a/libcfs/libcfs/linux/linux-module.c b/libcfs/libcfs/linux/linux-module.c
+index 970283e7f9..377f24fd06 100644
+--- a/libcfs/libcfs/linux/linux-module.c
++++ b/libcfs/libcfs/linux/linux-module.c
+@@ -103,42 +103,27 @@ failed:
+ static int
+ libcfs_psdev_open(struct inode * inode, struct file * file)
+ {
+-	struct libcfs_device_userstate **pdu = NULL;
+-	int    rc = 0;
+-
+ 	if (!inode)
+-		return (-EINVAL);
+-	pdu = (struct libcfs_device_userstate **)&file->private_data;
+-	if (libcfs_psdev_ops.p_open != NULL)
+-		rc = libcfs_psdev_ops.p_open(0, (void *)pdu);
+-	else
+-		return (-EPERM);
+-	return rc;
++		return -EINVAL;
++
++	try_module_get(THIS_MODULE);
++	return 0;
+ }
+ 
+ /* called when closing /dev/device */
+ static int
+ libcfs_psdev_release(struct inode * inode, struct file * file)
+ {
+-	struct libcfs_device_userstate *pdu;
+-	int    rc = 0;
+-
+ 	if (!inode)
+-		return (-EINVAL);
+-	pdu = file->private_data;
+-	if (libcfs_psdev_ops.p_close != NULL)
+-		rc = libcfs_psdev_ops.p_close(0, (void *)pdu);
+-	else
+-		rc = -EPERM;
+-	return rc;
++		return -EINVAL;
++
++	module_put(THIS_MODULE);
++	return 0;
+ }
+ 
+-static long libcfs_ioctl(struct file *file,
+-			 unsigned int cmd, unsigned long arg)
++static long
++libcfs_psdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+ {
+-	struct cfs_psdev_file	 pfile;
+-	int    rc = 0;
+-
+ 	if (!capable(CAP_SYS_ADMIN))
+ 		return -EACCES;
+ 
+@@ -147,35 +132,16 @@ static long libcfs_ioctl(struct file *file,
+ 	    _IOC_NR(cmd) > IOC_LIBCFS_MAX_NR) {
+ 		CDEBUG(D_IOCTL, "invalid ioctl ( type %d, nr %d, size %d )\n",
+ 		       _IOC_TYPE(cmd), _IOC_NR(cmd), _IOC_SIZE(cmd));
+-		return (-EINVAL);
+-	}
+-
+-	/* Handle platform-dependent IOC requests */
+-	switch (cmd) {
+-	case IOC_LIBCFS_PANIC:
+-		if (!cfs_capable(CFS_CAP_SYS_BOOT))
+-			return (-EPERM);
+-		panic("debugctl-invoked panic");
+-		return (0);
+-	case IOC_LIBCFS_MEMHOG:
+-		if (!cfs_capable(CFS_CAP_SYS_ADMIN))
+-			return -EPERM;
+-		/* go thought */
++		return -EINVAL;
+ 	}
+ 
+-	pfile.off = 0;
+-	pfile.private_data = file->private_data;
+-	if (libcfs_psdev_ops.p_ioctl != NULL)
+-		rc = libcfs_psdev_ops.p_ioctl(&pfile, cmd, (void __user *)arg);
+-	else
+-		rc = -EPERM;
+-	return (rc);
++	return libcfs_ioctl(cmd, (void __user *)arg);
+ }
+ 
+ static struct file_operations libcfs_fops = {
+-	unlocked_ioctl: libcfs_ioctl,
+-	open :          libcfs_psdev_open,
+-	release :       libcfs_psdev_release
++	.unlocked_ioctl = libcfs_psdev_ioctl,
++	.open		= libcfs_psdev_open,
++	.release	= libcfs_psdev_release
+ };
+ 
+ struct miscdevice libcfs_dev = {
+diff --git a/libcfs/libcfs/module.c b/libcfs/libcfs/module.c
+index 6b3ace5b5e..694bbb4031 100644
+--- a/libcfs/libcfs/module.c
++++ b/libcfs/libcfs/module.c
+@@ -40,149 +40,6 @@
+ #include <libcfs/libcfs_crypto.h>
+ #include <lnet/lib-lnet.h>
+ 
+-static void
+-kportal_memhog_free (struct libcfs_device_userstate *ldu)
+-{
+-	struct page **level0p = &ldu->ldu_memhog_root_page;
+-	struct page **level1p;
+-	struct page **level2p;
+-	int           count1;
+-	int           count2;
+-
+-	if (*level0p != NULL) {
+-		level1p = (struct page **)page_address(*level0p);
+-		count1 = 0;
+-
+-		while (count1 < PAGE_CACHE_SIZE/sizeof(struct page *) &&
+-		       *level1p != NULL) {
+-
+-			level2p = (struct page **)page_address(*level1p);
+-			count2 = 0;
+-
+-			while (count2 < PAGE_CACHE_SIZE/sizeof(struct page *) &&
+-			       *level2p != NULL) {
+-
+-				__free_page(*level2p);
+-				ldu->ldu_memhog_pages--;
+-				level2p++;
+-				count2++;
+-			}
+-
+-			__free_page(*level1p);
+-			ldu->ldu_memhog_pages--;
+-			level1p++;
+-			count1++;
+-		}
+-
+-		__free_page(*level0p);
+-		ldu->ldu_memhog_pages--;
+-
+-		*level0p = NULL;
+-	}
+-
+-	LASSERT(ldu->ldu_memhog_pages == 0);
+-}
+-
+-static int
+-kportal_memhog_alloc(struct libcfs_device_userstate *ldu, int npages,
+-		     gfp_t flags)
+-{
+-	struct page **level0p;
+-	struct page **level1p;
+-	struct page **level2p;
+-	int           count1;
+-	int           count2;
+-
+-	LASSERT(ldu->ldu_memhog_pages == 0);
+-	LASSERT(ldu->ldu_memhog_root_page == NULL);
+-
+-	if (npages < 0)
+-		return -EINVAL;
+-
+-	if (npages == 0)
+-		return 0;
+-
+-	level0p = &ldu->ldu_memhog_root_page;
+-	*level0p = alloc_page(flags);
+-	if (*level0p == NULL)
+-		return -ENOMEM;
+-	ldu->ldu_memhog_pages++;
+-
+-	level1p = (struct page **)page_address(*level0p);
+-	count1 = 0;
+-	memset(level1p, 0, PAGE_CACHE_SIZE);
+-
+-	while (ldu->ldu_memhog_pages < npages &&
+-	       count1 < PAGE_CACHE_SIZE/sizeof(struct page *)) {
+-
+-		if (signal_pending(current))
+-			return -EINTR;
+-
+-		*level1p = alloc_page(flags);
+-		if (*level1p == NULL)
+-			return -ENOMEM;
+-		ldu->ldu_memhog_pages++;
+-
+-		level2p = (struct page **)page_address(*level1p);
+-		count2 = 0;
+-		memset(level2p, 0, PAGE_CACHE_SIZE);
+-
+-		while (ldu->ldu_memhog_pages < npages &&
+-		       count2 < PAGE_CACHE_SIZE/sizeof(struct page *)) {
+-
+-			if (signal_pending(current))
+-				return -EINTR;
+-
+-			*level2p = alloc_page(flags);
+-			if (*level2p == NULL)
+-				return -ENOMEM;
+-			ldu->ldu_memhog_pages++;
+-
+-			level2p++;
+-			count2++;
+-		}
+-
+-		level1p++;
+-		count1++;
+-	}
+-
+-	return 0;
+-}
+-
+-/* called when opening /dev/device */
+-static int libcfs_psdev_open(unsigned long flags, void *args)
+-{
+-	struct libcfs_device_userstate *ldu;
+-	ENTRY;
+-
+-	try_module_get(THIS_MODULE);
+-
+-	LIBCFS_ALLOC(ldu, sizeof(*ldu));
+-	if (ldu != NULL) {
+-		ldu->ldu_memhog_pages = 0;
+-		ldu->ldu_memhog_root_page = NULL;
+-	}
+-	*(struct libcfs_device_userstate **)args = ldu;
+-
+-	RETURN(0);
+-}
+-
+-/* called when closing /dev/device */
+-static int libcfs_psdev_release(unsigned long flags, void *args)
+-{
+-	struct libcfs_device_userstate *ldu;
+-	ENTRY;
+-
+-	ldu = (struct libcfs_device_userstate *)args;
+-	if (ldu != NULL) {
+-		kportal_memhog_free(ldu);
+-		LIBCFS_FREE(ldu, sizeof(*ldu));
+-	}
+-
+-	module_put(THIS_MODULE);
+-	RETURN(0);
+-}
+-
+ static DECLARE_RWSEM(ioctl_list_sem);
+ static LIST_HEAD(ioctl_list);
+ 
+@@ -216,8 +73,7 @@ int libcfs_deregister_ioctl(struct libcfs_ioctl_handler *hand)
+ }
+ EXPORT_SYMBOL(libcfs_deregister_ioctl);
+ 
+-static int libcfs_ioctl(struct cfs_psdev_file *pfile,
+-			unsigned long cmd, void __user *uparam)
++int libcfs_ioctl(unsigned long cmd, void __user *uparam)
+ {
+ 	struct libcfs_ioctl_data *data = NULL;
+ 	struct libcfs_ioctl_hdr  *hdr;
+@@ -248,10 +104,6 @@ static int libcfs_ioctl(struct cfs_psdev_file *pfile,
+ 	case IOC_LIBCFS_CLEAR_DEBUG:
+ 		libcfs_debug_clear_buffer();
+ 		break;
+-	/*
+-	 * case IOC_LIBCFS_PANIC:
+-	 * Handled in arch/cfs_module.c
+-	 */
+ 	case IOC_LIBCFS_MARK_DEBUG:
+ 		if (data == NULL ||
+ 		    data->ioc_inlbuf1 == NULL ||
+@@ -261,20 +113,6 @@ static int libcfs_ioctl(struct cfs_psdev_file *pfile,
+ 		libcfs_debug_mark_buffer(data->ioc_inlbuf1);
+ 		break;
+ 
+-	case IOC_LIBCFS_MEMHOG:
+-		if (data == NULL)
+-			GOTO(out, err = -EINVAL);
+-
+-		if (pfile->private_data == NULL)
+-			GOTO(out, err = -EINVAL);
+-
+-		kportal_memhog_free(pfile->private_data);
+-		err = kportal_memhog_alloc(pfile->private_data,
+-					   data->ioc_count, data->ioc_flags);
+-		if (err != 0)
+-			kportal_memhog_free(pfile->private_data);
+-		break;
+-
+ 	default: {
+ 		struct libcfs_ioctl_handler *hand;
+ 
+@@ -299,14 +137,6 @@ out:
+ 	RETURN(err);
+ }
+ 
+-struct cfs_psdev_ops libcfs_psdev_ops = {
+-        libcfs_psdev_open,
+-        libcfs_psdev_release,
+-        NULL,
+-        NULL,
+-        libcfs_ioctl
+-};
+-
+ static int __init libcfs_init(void)
+ {
+ 	int rc;
+diff --git a/lnet/include/lnet/lnetctl.h b/lnet/include/lnet/lnetctl.h
+index 287d2c1ca2..d98a914b2f 100644
+--- a/lnet/include/lnet/lnetctl.h
++++ b/lnet/include/lnet/lnetctl.h
+@@ -163,7 +163,6 @@ int jt_ptl_notify_router (int argc, char **argv);
+ int jt_ptl_print_routes (int argc, char **argv);
+ int jt_ptl_fail_nid (int argc, char **argv);
+ int jt_ptl_testprotocompat(int argc, char **argv);
+-int jt_ptl_memhog(int argc, char **argv);
+ int jt_ptl_drop_add(int argc, char **argv);
+ int jt_ptl_drop_del(int argc, char **argv);
+ int jt_ptl_drop_reset(int argc, char **argv);
+@@ -183,6 +182,5 @@ int jt_dbg_debug_file(int argc, char **argv);
+ int jt_dbg_clear_debug_buf(int argc, char **argv);
+ int jt_dbg_mark_debug_buf(int argc, char **argv);
+ int jt_dbg_modules(int argc, char **argv);
+-int jt_dbg_panic(int argc, char **argv);
+ 
+ #endif
+diff --git a/lnet/utils/debug.c b/lnet/utils/debug.c
+index 9fae34e82e..aae7e461ee 100644
+--- a/lnet/utils/debug.c
++++ b/lnet/utils/debug.c
+@@ -861,28 +861,3 @@ int jt_dbg_modules(int argc, char **argv)
+ 	fclose(file);
+ 	return 0;
+ }
+-
+-int jt_dbg_panic(int argc, char **argv)
+-{
+-	int			 rc;
+-	struct libcfs_ioctl_data data;
+-
+-	if (argc != 1) {
+-		fprintf(stderr, "usage: %s\n", argv[0]);
+-		return 0;
+-	}
+-
+-	memset(&data, 0, sizeof(data));
+-	if (libcfs_ioctl_pack(&data, &buf, max) != 0) {
+-		fprintf(stderr, "libcfs_ioctl_pack failed.\n");
+-		return -1;
+-	}
+-
+-	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_PANIC, buf);
+-	if (rc) {
+-		fprintf(stderr, "IOC_LIBCFS_PANIC failed: %s\n",
+-			strerror(errno));
+-		return -1;
+-	}
+-	return 0;
+-}
+diff --git a/lnet/utils/portals.c b/lnet/utils/portals.c
+index facea69ed7..ab3f9f71ec 100644
+--- a/lnet/utils/portals.c
++++ b/lnet/utils/portals.c
+@@ -1682,49 +1682,6 @@ get_cycles_per_usec ()
+         return (1000.0);
+ }
+ 
+-int jt_ptl_memhog(int argc, char **argv)
+-{
+-        static int                gfp = 0;        /* sticky! */
+-
+-        struct libcfs_ioctl_data  data;
+-        int                       rc;
+-        int                       count;
+-        char                     *end;
+-
+-        if (argc < 2)  {
+-                fprintf(stderr, "usage: %s <npages> [<GFP flags>]\n", argv[0]);
+-                return 0;
+-        }
+-
+-        count = strtol(argv[1], &end, 0);
+-        if (count < 0 || *end != 0) {
+-                fprintf(stderr, "Can't parse page count '%s'\n", argv[1]);
+-                return -1;
+-        }
+-
+-        if (argc >= 3) {
+-                rc = strtol(argv[2], &end, 0);
+-                if (*end != 0) {
+-                        fprintf(stderr, "Can't parse gfp flags '%s'\n", argv[2]);
+-                        return -1;
+-                }
+-                gfp = rc;
+-        }
+-
+-        LIBCFS_IOC_INIT(data);
+-        data.ioc_count = count;
+-        data.ioc_flags = gfp;
+-        rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_MEMHOG, &data);
+-
+-        if (rc != 0) {
+-                fprintf(stderr, "memhog %d failed: %s\n", count, strerror(errno));
+-                return -1;
+-        }
+-
+-        printf("memhog %d OK\n", count);
+-        return 0;
+-}
+-
+ int jt_ptl_testprotocompat(int argc, char **argv)
+ {
+         struct libcfs_ioctl_data  data;
+diff --git a/lustre/utils/lctl.c b/lustre/utils/lctl.c
+index 2e5c1bf563..9c272678c8 100644
+--- a/lustre/utils/lctl.c
++++ b/lustre/utils/lctl.c
+@@ -398,9 +398,6 @@ command_t cmdlist[] = {
+         {"test_brw", jt_obd_test_brw, 0,
+          "do <num> bulk read/writes (<npages> per I/O, on OST object <objid>)\n"
+          "usage: test_brw [t]<num> [write [verbose [npages [[t]objid]]]]"},
+-        {"memhog", jt_ptl_memhog, 0,
+-         "memory pressure testing\n"
+-         "usage: memhog <page count> [<gfp flags>]"},
+         {"getobjversion", jt_get_obj_version, 0,
+          "get the version of an object on servers\n"
+ 	 "usage: getobjversion <fid>\n"
+-- 
+2.17.1
+

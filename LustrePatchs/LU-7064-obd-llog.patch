@@ -1,0 +1,40 @@
+From 5d9275e2784942266f2c9cd03f9ad2f17fba0af4 Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Thu, 14 Jan 2016 19:25:29 +0530
+Subject: [PATCH] LU-7064 obd: detect errors from llog_declare_destroy()
+
+The return value from llog_declare_destroy() in
+llog_cancel_rec() is not used. This patch adds the same check.
+
+Change-Id: I31c09d426e9e4ae5418531acd73a6428927e9bd3
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Reviewed-on: http://review.whamcloud.com/17999
+Tested-by: Jenkins
+Reviewed-by: John L. Hammond <john.hammond@intel.com>
+Reviewed-by: Dmitry Eremin <dmitry.eremin@intel.com>
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: Oleg Drokin <oleg.drokin@intel.com>
+---
+ lustre/obdclass/llog.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/lustre/obdclass/llog.c b/lustre/obdclass/llog.c
+index 174347c07b..0ab7a3407c 100644
+--- a/lustre/obdclass/llog.c
++++ b/lustre/obdclass/llog.c
+@@ -229,8 +229,11 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
+ 	if (rc < 0)
+ 		GOTO(out_trans, rc);
+ 
+-	if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY))
++	if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY)) {
+ 		rc = llog_declare_destroy(env, loghandle, th);
++		if (rc < 0)
++			GOTO(out_trans, rc);
++	}
+ 
+ 	th->th_wait_submit = 1;
+ 	rc = dt_trans_start_local(env, dt, th);
+-- 
+2.17.1
+

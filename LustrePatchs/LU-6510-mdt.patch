@@ -1,0 +1,57 @@
+From a0f8fb3cb88b52bbb5eba1d9073db805b55e8f0c Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Tue, 3 May 2016 22:17:18 +0530
+Subject: [PATCH] LU-6510 mdt: mdt_handle_idmap unsafe access to req->rq_export
+
+Fix unsafe assignment for mdt in mdt_handle_idmap().
+
+Change-Id: I0f64884a512043bcc4f569f41539081f62a85415
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+---
+ lustre/mdt/mdt_idmap.c | 28 +++++++++++++++-------------
+ 1 file changed, 15 insertions(+), 13 deletions(-)
+
+diff --git a/lustre/mdt/mdt_idmap.c b/lustre/mdt/mdt_idmap.c
+index 389c2798c2..f8bed63cd1 100644
+--- a/lustre/mdt/mdt_idmap.c
++++ b/lustre/mdt/mdt_idmap.c
+@@ -134,21 +134,23 @@ static inline void mdt_revoke_export_locks(struct obd_export *exp)
+ 
+ int mdt_handle_idmap(struct tgt_session_info *tsi)
+ {
+-	struct ptlrpc_request	*req = tgt_ses_req(tsi);
+-	struct mdt_device	*mdt = mdt_exp2dev(req->rq_export);
+-        struct mdt_export_data *med;
+-        struct ptlrpc_user_desc *pud = req->rq_user_desc;
+-        struct md_identity *identity;
+-        __u32 opc;
+-        int rc = 0;
+-        ENTRY;
+-
+-        if (!req->rq_export)
+-                RETURN(0);
++	struct ptlrpc_request *req = tgt_ses_req(tsi);
++	struct mdt_device *mdt;
++	struct mdt_export_data *med;
++	struct ptlrpc_user_desc *pud = req->rq_user_desc;
++	struct md_identity *identity;
++	__u32 opc;
++	int rc = 0;
+ 
+-        med = mdt_req2med(req);
++	ENTRY;
++
++	if (!req->rq_export)
++		RETURN(0);
++	mdt = mdt_exp2dev(req->rq_export);
++
++	med = mdt_req2med(req);
+ 	if (!exp_connect_rmtclient(req->rq_export))
+-                RETURN(0);
++		RETURN(0);
+ 
+         opc = lustre_msg_get_opc(req->rq_reqmsg);
+         /* Bypass other opc */
+-- 
+2.17.1
+

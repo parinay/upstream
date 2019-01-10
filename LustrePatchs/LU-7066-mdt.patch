@@ -1,0 +1,253 @@
+From 1a7834d0fd9b6776e7df1f2d4e3bb7032f398c42 Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Thu, 4 Feb 2016 10:14:34 +0530
+Subject: [PATCH] LU-7606 "mdt_enable_remote_dir" cleanup in /proc.
+
+The ability to create nested remote directories depends on a /proc
+setting on the MDS whether the user or group can create remote
+directories and/or remote directories with parents other than MDT0000.
+
+Those nested remote check under /proc has been removed in master 2.7.51
+since loop namespace tree can not be avoided with cross-MDT rename and
+link.
+
+It seems mdt_enable_remote_dir still exists under /proc and this patch
+takes care of the same. The corrosponing changes in tests and doc are
+included.
+
+Test-Parameters: alwaysuploadlogs envdefinitions=ONLY=110 \
+ossdistro=el6.6 mdsdistro=el6.6 \
+ossjob=lustre-b2_7 mdsjob=lustre-b2_7 ossbuildno=34 mdsbuildno=34 \
+testlist=recovery-small
+
+Test-Parameters: alwaysuploadlogs envdefinitions=ONLY=32 \
+ossdistro=el6.6 mdsdistro=el6.6 \
+ossjob=lustre-b2_7 mdsjob=lustre-b2_7 ossbuildno=34 mdsbuildno=34 \
+testlist=conf-sanity
+
+Seagate-bug-id: MRP-3227
+
+Change-Id: I8dad4c03f5dbf9022873ff9f8ae32c18ace6a066
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+---
+ lustre/doc/lfs-setdirstripe.1  |  6 ------
+ lustre/doc/lfs.1               |  6 ------
+ lustre/mdt/mdt_lproc.c         | 32 -------------------------------
+ lustre/tests/conf-sanity.sh    |  7 -------
+ lustre/tests/recovery-small.sh |  6 +++++-
+ lustre/tests/test-framework.sh | 35 +++++++++++++++++++++++++++-------
+ 6 files changed, 33 insertions(+), 59 deletions(-)
+
+diff --git a/lustre/doc/lfs-setdirstripe.1 b/lustre/doc/lfs-setdirstripe.1
+index 9720cb3cf1..efcdd595e9 100644
+--- a/lustre/doc/lfs-setdirstripe.1
++++ b/lustre/doc/lfs-setdirstripe.1
+@@ -63,12 +63,6 @@ The root of the file system is on MDT0000, and directories and files inherit the
+ MDT of their parent directory unless a different MDT is specified with this
+ command.
+ 
+-By default, only directories on MDT0000 can contain directories that are not on
+-the same MDT.  However, if "mdt.*.enable_remote_dir" is set non-zero on an MDT
+-then it will allow creating remote directories that have parents other than
+-MDT0000. This is restricted to avoid creating directory trees that have
+-intermediate path components on a series different MDTs and become unavailable
+-if any of the intermediate MDTs are offline.
+ .SH EXAMPLES
+ .TP
+ .B $ lfs setdirstripe -c 2 -i 1 -t all_char /mnt/lustre/dir1
+diff --git a/lustre/doc/lfs.1 b/lustre/doc/lfs.1
+index 6c1e5a3852..5b1fcb9372 100644
+--- a/lustre/doc/lfs.1
++++ b/lustre/doc/lfs.1
+@@ -313,12 +313,6 @@ The root of the file system is on MDT0000, and directories and files inherit the
+ MDT of their parent directory unless a different MDT is specified with this
+ command.
+ 
+-By default, only directories on MDT0000 can contain directories that are not on
+-the same MDT.  However, if "mdt.*.enable_remote_dir" is set non-zero on an MDT
+-then it will allow creating remote directories that have parents other than
+-MDT0000. This is restricted to avoid creating directory trees that have
+-intermediate path components on a series different MDTs and become unavailable
+-if any of the intermediate MDTs are offline.
+ .TP
+ .B --version
+ Output the build version of the lfs utility. Use "lctl lustre_build_version" to get the version of the Lustre kernel modules
+diff --git a/lustre/mdt/mdt_lproc.c b/lustre/mdt/mdt_lproc.c
+index 58728e8a24..c6e5d5c3ed 100644
+--- a/lustre/mdt/mdt_lproc.c
++++ b/lustre/mdt/mdt_lproc.c
+@@ -618,36 +618,6 @@ mdt_nosquash_nids_seq_write(struct file *file, const char __user *buffer,
+ }
+ LPROC_SEQ_FOPS(mdt_nosquash_nids);
+ 
+-static int mdt_enable_remote_dir_seq_show(struct seq_file *m, void *data)
+-{
+-	struct obd_device *obd = m->private;
+-	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+-
+-	return seq_printf(m, "%u\n", mdt->mdt_enable_remote_dir);
+-}
+-
+-static ssize_t
+-mdt_enable_remote_dir_seq_write(struct file *file, const char __user *buffer,
+-				size_t count, loff_t *off)
+-{
+-	struct seq_file   *m = file->private_data;
+-	struct obd_device *obd = m->private;
+-	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+-	__u32 val;
+-	int rc;
+-
+-	rc = lprocfs_write_helper(buffer, count, &val);
+-	if (rc)
+-		return rc;
+-
+-	if (val > 1)
+-		return -ERANGE;
+-
+-	mdt->mdt_enable_remote_dir = val;
+-	return count;
+-}
+-LPROC_SEQ_FOPS(mdt_enable_remote_dir);
+-
+ static int mdt_enable_remote_dir_gid_seq_show(struct seq_file *m, void *data)
+ {
+ 	struct obd_device *obd = m->private;
+@@ -824,8 +794,6 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
+ 	  .fops =	&mdt_ir_factor_fops			},
+ 	{ .name =	"job_cleanup_interval",
+ 	  .fops =	&mdt_job_interval_fops			},
+-	{ .name =	"enable_remote_dir",
+-	  .fops =	&mdt_enable_remote_dir_fops		},
+ 	{ .name =	"enable_remote_dir_gid",
+ 	  .fops =	&mdt_enable_remote_dir_gid_fops		},
+ 	{ .name =	"hsm_control",
+diff --git a/lustre/tests/conf-sanity.sh b/lustre/tests/conf-sanity.sh
+index 7a6d88e7cf..32ca16bbb8 100755
+--- a/lustre/tests/conf-sanity.sh
++++ b/lustre/tests/conf-sanity.sh
+@@ -1838,8 +1838,6 @@ t32_test() {
+ 		}
+ 
+ 		echo "mount new MDT....$mdt2_dev"
+-		$r $LCTL set_param -n mdt.${fsname}*.enable_remote_dir=1 ||
+-			error_noexit "enable remote dir create failed"
+ 
+ 		shall_cleanup_mdt1=true
+ 	elif [ "$dne_upgrade" != "no" ]; then
+@@ -1870,9 +1868,6 @@ t32_test() {
+ 			return 1
+ 		}
+ 
+-		$r $LCTL set_param -n mdt.${fsname}*.enable_remote_dir=1 ||
+-			error_noexit "enable remote dir create failed"
+-
+ 		shall_cleanup_mdt1=true
+ 	fi
+ 
+@@ -2186,8 +2181,6 @@ t32_test() {
+ 		# migrate files/dirs to remote MDT, then move them back
+ 		if [ $(lustre_version_code mds1) -ge $(version_code 2.7.50) -a \
+ 		     $dne_upgrade != "no" ]; then
+-			$r $LCTL set_param -n	\
+-				mdt.${fsname}*.enable_remote_dir=1 2>/dev/null
+ 
+ 			echo "test migration"
+ 			pushd $tmp/mnt/lustre
+diff --git a/lustre/tests/recovery-small.sh b/lustre/tests/recovery-small.sh
+index 03ce07c86e..6122fdd79d 100755
+--- a/lustre/tests/recovery-small.sh
++++ b/lustre/tests/recovery-small.sh
+@@ -1889,6 +1889,10 @@ run_test 108 "client eviction don't crash"
+ 
+ test_110a () {
+ 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
++	[[ $(lustre_version_code $SINGLEMDS) -gt $(version_code 2.7.51) ]] &&
++		skip "enable_remote_dir support in /proc is not present on" \
++		" $server_version MDS " && return
++
+ 	local remote_dir=$DIR/$tdir/remote_dir
+ 	local MDTIDX=1
+ 	local num
+@@ -1897,7 +1901,7 @@ test_110a () {
+ 	for num in $(seq $MDSCOUNT); do
+ 		do_facet mds$num \
+ 			lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
+-				2>/dev/null
++			2>/dev/null
+ 	done
+ 
+ 	mkdir -p $DIR/$tdir
+diff --git a/lustre/tests/test-framework.sh b/lustre/tests/test-framework.sh
+index dd649f0d46..95dd380736 100755
+--- a/lustre/tests/test-framework.sh
++++ b/lustre/tests/test-framework.sh
+@@ -1253,11 +1253,19 @@ mount_facet() {
+ 
+ 	set_default_debug_facet $facet
+ 
+-	if [[ $facet == mds* ]]; then
++	if [ $(lustre_version_code $SINGLEMDS) -gt $(version_code 2.7.51) ]
++	then
++		echo "enable_remote_dir support in /proc is not present on" \
++			" $server_version MDS "
++	else
++		if [[ $facet == mds* ]]; then
+ 		do_facet $facet \
+-		lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 2>/dev/null
++			lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
++			2>/dev/null
++		fi
+ 	fi
+ 
++
+ 	if [[ $opts =~ .*nosvc.* ]]; then
+ 		echo "Start ${!dev} without service"
+ 	else
+@@ -1309,12 +1317,19 @@ start() {
+ 	mount_facet ${facet}
+ 	RC=$?
+ 
+-	if [[ $facet == mds* ]]; then
+-		do_facet $facet \
++	if [ $(lustre_version_code $SINGLEMDS) -gt $(version_code 2.7.51) ]
++	then
++		echo "enable_remote_dir support in /proc is not present on" \
++		" $server_version MDS "
++	else
++		if [[ $facet == mds* ]]; then
++			do_facet $facet \
+ 			lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
+ 				2>/dev/null
++		fi
+ 	fi
+ 
++
+ 	return $RC
+ }
+ 
+@@ -4010,12 +4025,18 @@ check_and_setup_lustre() {
+ 		set_flavor_all $SEC
+ 	fi
+ 
+-	#Enable remote MDT create for testing
+-	for num in $(seq $MDSCOUNT); do
++	#Enable remote MDT create for testing where supported.
++	if [ $(lustre_version_code $SINGLEMDS) -gt $(version_code 2.7.51) ]
++	then
++		echo "enable_remote_dir support in /proc is not present on" \
++		" $server_version MDS "
++	else
++		for num in $(seq $MDSCOUNT); do
+ 		do_facet mds$num \
+ 			lctl set_param -n mdt.${FSNAME}*.enable_remote_dir=1 \
+ 				2>/dev/null
+-	done
++		done
++	fi
+ 
+ 	if [ "$ONLY" == "setup" ]; then
+ 		exit 0
+-- 
+2.17.1
+

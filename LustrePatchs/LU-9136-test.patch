@@ -1,0 +1,34 @@
+From ec13deae9d66e1e77c44d36ab658272b9825b3fb Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Fri, 17 Feb 2017 13:03:59 +0530
+Subject: [PATCH] LU-9136 tests: SKIP sanity/230b for older MDS versions
+
+LU-2430 esp change,
+"LU-2430 mdd: add lfs mv to migrate inode.",is not
+present on 2.5.x OR esp on tags less than 2.6.57
+and test should be skipped for such interop run.
+
+Test-Parameters: testlist=sanity
+Signed-off-by: Parinay Kondekar <Parinay.Kondekar@seagate.com>
+Change-Id: I822ea21e5105f5bdc895908e1a3097943575fb34
+---
+ lustre/tests/sanity.sh | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/lustre/tests/sanity.sh b/lustre/tests/sanity.sh
+index e2d541655e..81c148c5f4 100755
+--- a/lustre/tests/sanity.sh
++++ b/lustre/tests/sanity.sh
+@@ -13071,6 +13071,9 @@ test_230a() {
+ run_test 230a "Create remote directory and files under the remote directory"
+ 
+ test_230b() {
++	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.6.57) ]] ||
++		{ skip "Need MDS version with at least 2.6.57"; return 0; }
++
+ 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+ 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+ 	local MDTIDX=1
+-- 
+2.17.1
+

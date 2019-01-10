@@ -1,0 +1,125 @@
+From 7d6250a7ebb1d4c803c3f7b31994bca911b09a4c Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Wed, 9 Sep 2015 17:39:39 +0530
+Subject: [PATCH] LU-7121 tests: Extra items shown in the stack trace in t-f
+
+The call to functions error_exit(), error_noexit(), error()
+in turn call function log_trace_dump().
+
+This call along with important information about where the
+particular test failed shows some extra information in the
+dump trace.
+
+This changes fix the problem noticed and dumps only the relevant
+information instead.
+
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Change-Id: I5fba23f6e296e77feb0339c5e20815c288b8b751
+Seagate-Bug-Id: MRP-891
+Reviewed-on: http://es-gerrit.xyus.xyratex.com:8080/721/
+Tested-by: Jenkins
+Reviewed-by: Elena V. Gryaznova <elena.gryaznova@seagate.com>
+Tested-by: Elena V. Gryaznova <elena.gryaznova@seagate.com>
+Reviewed-by: Kyrylo Shatskyy <kyrylo_shatskyy@xyratex.com>
+Signed-off-by:  Kyrylo Shatskyy <kyrylo_shatskyy@xyratex.com>
+Reviewed-on: http://review.whamcloud.com/16338
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: James Nunez <james.a.nunez@intel.com>
+Reviewed-by: Wei Liu <wei3.liu@intel.com>
+Reviewed-by: Oleg Drokin <oleg.drokin@intel.com>
+---
+ lustre/tests/test-framework.sh | 38 +++++++++++++++++++---------------
+ 1 file changed, 21 insertions(+), 17 deletions(-)
+
+diff --git a/lustre/tests/test-framework.sh b/lustre/tests/test-framework.sh
+index 9037f7e215..6c309d127b 100755
+--- a/lustre/tests/test-framework.sh
++++ b/lustre/tests/test-framework.sh
+@@ -4685,20 +4685,17 @@ stop_full_debug_logging() {
+ 
+ # prints bash call stack
+ print_stack_trace() {
++	local skip=${1:-1}
+ 	echo "  Trace dump:"
+-	for (( i=1; i < ${#BASH_LINENO[*]} ; i++ )) ; do
+-		local s=${BASH_SOURCE[$i]}
+-		local l=${BASH_LINENO[$i-1]}
+-		local f=${FUNCNAME[$i]}
+-		echo "  = $s:$l:$f()"
++	for (( i=$skip; i < ${#BASH_LINENO[*]} ; i++ )) ; do
++		local src=${BASH_SOURCE[$i]}
++		local lineno=${BASH_LINENO[$i-1]}
++		local funcname=${FUNCNAME[$i]}
++		echo "  = $src:$lineno:$funcname()"
+ 	done
+ }
+ 
+-##################################
+-# Test interface
+-##################################
+-
+-error_noexit() {
++report_error() {
+ 	local TYPE=${TYPE:-"FAIL"}
+ 
+ 	local dump=true
+@@ -4708,10 +4705,8 @@ error_noexit() {
+ 		dump=false
+ 	fi
+ 
+-
+ 	log " ${TESTSUITE} ${TESTNAME}: @@@@@@ ${TYPE}: $@ "
+-	print_stack_trace >&2
+-
++	(print_stack_trace 2) >&2
+ 	mkdir -p $LOGDIR
+ 	# We need to dump the logs on all nodes
+ 	if $dump; then
+@@ -4735,6 +4730,14 @@ error_noexit() {
+ 	reset_fail_loc
+ }
+ 
++##################################
++# Test interface
++##################################
++
++error_noexit() {
++	report_error "$@"
++}
++
+ exit_status () {
+ 	local status=0
+ 	local log=$TESTSUITELOG
+@@ -4744,12 +4747,13 @@ exit_status () {
+ }
+ 
+ error() {
+-	error_noexit "$@"
++	report_error "$@"
+ 	exit 1
+ }
+ 
+ error_exit() {
+-	error "$@"
++	report_error "$@"
++	exit 1
+ }
+ 
+ # use only if we are ignoring failures for this test, bugno required.
+@@ -4759,11 +4763,11 @@ error_exit() {
+ error_ignore() {
+ 	local TYPE="IGNORE ($1)"
+ 	shift
+-	error_noexit "$@"
++	report_error "$@"
+ }
+ 
+ error_and_remount() {
+-	error_noexit "$@"
++	report_error "$@"
+ 	remount_client $MOUNT
+ 	exit 1
+ }
+-- 
+2.17.1
+

@@ -1,0 +1,75 @@
+From 0a338970c2c73e14cc9be65d360de85be28ca488 Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Wed, 6 Apr 2016 10:13:45 +0530
+Subject: [PATCH] LU-7323 test: Unknown symbol mb_cache_create (err 0)" on
+ RHEL7
+
+The error message is seen if mbcache module isn't loaded.
+
+Before RHEL7 it was part of ext4, but EL7 have mbcache as
+separate module and needs an extra `modprobe mbcache` command
+before tests are run from local build dir.
+
+This fixes the function load_modules_local() in test-framework.sh
+
+Seagate-bug-id: MRP-3018
+Change-Id: I7f1317355785c191287788bcb177d78b12231c97
+Signed-off-by: Alexey Lyashkov <alexey.lyashkov@seagate.com>
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Reviewed-on: http://review.whamcloud.com/16900
+Reviewed-by: Andreas Dilger <andreas.dilger@intel.com>
+Tested-by: Jenkins
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: Christopher J. Morrone <morrone2@llnl.gov>
+Reviewed-by: Oleg Drokin <oleg.drokin@intel.com>
+---
+ lustre/tests/test-framework.sh | 18 +++++++++++-------
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/lustre/tests/test-framework.sh b/lustre/tests/test-framework.sh
+index 7a9cb6ba0e..b7ef7f4185 100755
+--- a/lustre/tests/test-framework.sh
++++ b/lustre/tests/test-framework.sh
+@@ -569,13 +569,15 @@ load_modules_local() {
+     load_module lov/lov
+     load_module mgc/mgc
+     load_module obdecho/obdecho
+-    if ! client_only; then
+-        SYMLIST=/proc/kallsyms
+-        grep -q crc16 $SYMLIST || { modprobe crc16 2>/dev/null || true; }
+-        grep -q -w jbd $SYMLIST || { modprobe jbd 2>/dev/null || true; }
+-        grep -q -w jbd2 $SYMLIST || { modprobe jbd2 2>/dev/null || true; }
++	if ! client_only; then
++		SYMLIST=/proc/kallsyms
++		grep -q crc16 $SYMLIST ||
++			{ modprobe crc16 2>/dev/null || true; }
++		grep -q -w jbd2 $SYMLIST ||
++			{ modprobe jbd2 2>/dev/null || true; }
+ 		load_module lfsck/lfsck
+-		[ "$LQUOTA" != "no" ] && load_module quota/lquota $LQUOTAOPTS
++		[ "$LQUOTA" != "no" ] &&
++			load_module quota/lquota $LQUOTAOPTS
+ 		if [[ $(node_fstypes $HOSTNAME) == *zfs* ]]; then
+ 			modprobe zfs
+ 			load_module osd-zfs/osd_zfs
+@@ -583,6 +585,8 @@ load_modules_local() {
+ 		if [[ $(node_fstypes $HOSTNAME) == *ldiskfs* ]]; then
+ 			grep -q exportfs_decode_fh $SYMLIST ||
+ 				{ modprobe exportfs 2> /dev/null || true; }
++			grep -q -w mbcache $SYMLIST ||
++				{ modprobe mbcache 2>/dev/null || true; }
+ 			load_module ../ldiskfs/ldiskfs
+ 			load_module osd-ldiskfs/osd_ldiskfs
+ 		fi
+@@ -594,7 +598,7 @@ load_modules_local() {
+ 		load_module osp/osp
+ 		load_module ofd/ofd
+ 		load_module osp/osp
+-    fi
++	fi
+ 
+ 	load_module llite/lustre
+ 	llite_lloop_enabled && load_module llite/llite_lloop
+-- 
+2.17.1
+

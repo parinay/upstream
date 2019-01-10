@@ -1,0 +1,103 @@
+From aa186498a5ea1426a188a48a63094de664ef17be Mon Sep 17 00:00:00 2001
+From: James Morse <james.s.morse@seagate.com>
+Date: Wed, 15 Mar 2017 18:08:40 +0530
+Subject: [PATCH] LU-9215 build: Re-add the lustre-devel package.
+
+This re-adds the lustre-devel package, depended on
+by other projects.
+
+Seagate-bug-id: MRP-308
+Signed-off-by: James Morse <james.s.morse@seagate.com>
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Change-Id: Ic0f9b58f5608fa78108629ca045d2005518e984d
+---
+ lustre.spec.in | 52 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 52 insertions(+)
+
+diff --git a/lustre.spec.in b/lustre.spec.in
+index 6c41c9fc63..c67c272106 100644
+--- a/lustre.spec.in
++++ b/lustre.spec.in
+@@ -178,6 +178,18 @@ A set of scripts to operate Lustre resources in a High Availablity
+ environment for both Pacemaker and rgmanager.
+ %endif
+ 
++%package devel
++Summary: Lustre include headers
++Group: Development/Kernel
++# N.B. this package will always be called lustre-devel.
++Provides: lustre-devel = %{version}
++Requires: %{name} = %{version}
++Requires: %{requires_kmod_name} = %{requires_kmod_version}
++
++%description devel
++This package contains the headers required to build ancillary
++kernel modules that work closely with the standard lustre modules.
++
+ %package tests
+ Summary: Lustre testing framework
+ Group: System Environment/Kernel
+@@ -283,6 +295,40 @@ fi
+ make %{?_smp_mflags} -s %{?make_args}
+ 
+ %install
++add_hdr_file() {
++    declare destfil= destdir= f=
++
++    # mirror all lustre headers from
++    #   lustre-source/lustre-%v/{lustre,libcfs,lnet}/include/
++    # into
++    #   /usr/src/lustre-%v-headers/{libsysio,lustre,libcfs,lnet}/include/
++    #
++    # for example:
++    #   lustre-source/lustre-%v/libcfs/include/libcfs/bitmap.h
++    # is installed as
++    #   /usr/src/lustre-%v-headers/libcfs/include/libcfs/bitmap.h
++
++    while read f
++    do
++        destfil=/usr/src/$(echo $f | \
++            sed "s@^${RPM_BUILD_DIR}/\(lustre-%{version}\)/@\1-headers/@")
++        destdir=$RPM_BUILD_ROOT/$(dirname $destfil)
++        test -d ${destdir} || mkdir -p ${destdir}
++        cp $f ${destdir}/.
++        echo "%attr(-, root, root) ${destfil}"
++    done
++
++    f=$RPM_BUILD_DIR/lustre-%{version}/config.h
++    destfil=usr/src/lustre-%{version}-headers/config.h
++    cp $f $RPM_BUILD_ROOT/$destfil
++    echo "%attr(-, root, root) /${destfil}"
++
++    f=$RPM_BUILD_DIR/lustre-%{version}/Module.symvers
++    destfil=usr/src/lustre-%{version}-headers/Module.symvers
++    cp $f $RPM_BUILD_ROOT/${destfil}
++    echo "%attr(-, root, root) /${destfil}"
++}
++
+ make install DESTDIR=$RPM_BUILD_ROOT
+ 
+ # RHEL's kernel_module_path macro expects that all the modules
+@@ -337,6 +383,10 @@ install -m 0755 contrib/scripts/pacemaker/* $RPM_BUILD_ROOT%{_prefix}/lib/ocf/re
+ # fc18 needs 'x' permission for library files
+ find $RPM_BUILD_ROOT -name \*.so -type f -exec chmod +x {} \;
+ 
++find ${RPM_BUILD_DIR}/lustre-%{version} -type f -name '*.h' | \
++    fgrep /include/ | \
++    add_hdr_file > lustre-devel.files
++
+ %if %{with lnet_dlc}
+ rm -f $RPM_BUILD_ROOT%{_libdir}/liblnetconfig.la
+ %if %{with static}
+@@ -438,6 +488,8 @@ echo '%{_sbindir}/wiretest' >>lustre-tests.files
+ %{_prefix}/lib/ocf/resource.d/lustre/
+ %endif
+ 
++%files devel -f lustre-devel.files
++
+ %if %{with lustre_tests}
+ %files tests -f lustre-tests.files
+ %defattr(-,root,root)
+-- 
+2.17.1
+

@@ -1,0 +1,38 @@
+From c341ac9083c1764675c92363e1dd8bcd3223788a Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Mon, 18 Jan 2016 08:59:35 +0530
+Subject: [PATCH] LU-6512 llite:ll_dir_ioctl cleanup of redundant comparisons
+
+In ll_dir_ioctl() two identical comparisions are present for
+return code (rc) of ll_dir_getstripe(). This patch removes
+the other inside if( ) condition which is not necessary.
+
+Change-Id: Ia32dd5ac5937d30dd3676094ef99a623e5cca608
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Reviewed-on: http://review.whamcloud.com/18027
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: Bobi Jam <bobijam@hotmail.com>
+Reviewed-by: James Simmons <uja.ornl@yahoo.com>
+Tested-by: Jenkins
+Reviewed-by: Oleg Drokin <oleg.drokin@intel.com>
+---
+ lustre/llite/dir.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/lustre/llite/dir.c b/lustre/llite/dir.c
+index 4f28145783..ec71a19b6a 100644
+--- a/lustre/llite/dir.c
++++ b/lustre/llite/dir.c
+@@ -1293,9 +1293,6 @@ lmv_out_free:
+ 
+ 		/* Get default LMV EA */
+ 		if (lum.lum_magic == LMV_USER_MAGIC) {
+-			if (rc != 0)
+-				GOTO(finish_req, rc);
+-
+ 			if (lmmsize > sizeof(*ulmv))
+ 				GOTO(finish_req, rc = -EINVAL);
+ 
+-- 
+2.17.1
+

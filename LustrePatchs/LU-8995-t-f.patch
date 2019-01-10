@@ -1,0 +1,40 @@
+From fe46b10963af8dd2fbe0b7c5ca4ed3877431f3f3 Mon Sep 17 00:00:00 2001
+From: Alexey Lyashkov <alexey.lyashkov@seagate.com>
+Date: Tue, 24 Jan 2017 17:35:35 +0530
+Subject: [PATCH] LU-8995 tests: set debug size correctly
+
+Use library function to set the debug log size
+
+Seagate-bug-id: MRP-4055
+Signed-off-by: Alexey Lyashkov <alexey.lyashkov@seagate.com>
+Signed-off-by: Parinay Kondekar <Parinay.Kondekar@seagate.com>
+Change-Id: I125ce7f5f7f7754e82f913ef8cf6944f40f631d6
+Reviewed-on: https://review.whamcloud.com/24782
+Reviewed-by: Jian Yu <jian.yu@intel.com>
+Tested-by: Jenkins
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: James Nunez <james.a.nunez@intel.com>
+Reviewed-by: Oleg Drokin <oleg.drokin@intel.com>
+---
+ lustre/tests/test-framework.sh | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/lustre/tests/test-framework.sh b/lustre/tests/test-framework.sh
+index ffc5253edf..a90beaeaad 100755
+--- a/lustre/tests/test-framework.sh
++++ b/lustre/tests/test-framework.sh
+@@ -534,9 +534,8 @@ load_modules_local() {
+ 	# variable to remote nodes
+ 	unset MODOPTS_LIBCFS
+ 
+-    [ "$PTLDEBUG" ] && lctl set_param debug="$PTLDEBUG"
+-    [ "$SUBSYSTEM" ] && lctl set_param subsystem_debug="${SUBSYSTEM# }"
+-    load_module ../lnet/lnet/lnet
++	set_default_debug
++	load_module ../lnet/lnet/lnet
+ 	case $NETTYPE in
+ 	o2ib)
+ 		LNETLND="o2iblnd/ko2iblnd"
+-- 
+2.17.1
+

@@ -1,0 +1,33 @@
+commit d6426a64df330b1330f06b342d2c6537d7c6c165
+Author: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date:   Fri Dec 2 19:53:26 2016 -0500
+
+    staging: lustre: llite: ll_dir_ioctl cleanup of redundant comparisons
+    
+    In ll_dir_ioctl() two identical comparisions are present for
+    return code (rc) of ll_dir_getstripe(). This patch removes
+    the other inside if( ) condition which is not necessary.
+    
+    Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+    Intel-bug-id: https://jira.hpdd.intel.com/browse/LU-6512
+    Reviewed-on: http://review.whamcloud.com/18027
+    Reviewed-by: Bobi Jam <bobijam@hotmail.com>
+    Reviewed-by: James Simmons <uja.ornl@yahoo.com>
+    Reviewed-by: Oleg Drokin <oleg.drokin@intel.com>
+    Signed-off-by: James Simmons <jsimmons@infradead.org>
+    Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+
+diff --git a/drivers/staging/lustre/lustre/llite/dir.c b/drivers/staging/lustre/lustre/llite/dir.c
+index 7bdcbb46deae..ea5d247a3f70 100644
+--- a/drivers/staging/lustre/lustre/llite/dir.c
++++ b/drivers/staging/lustre/lustre/llite/dir.c
+@@ -1229,9 +1229,6 @@ static long ll_dir_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+ 
+ 		/* Get default LMV EA */
+ 		if (lum.lum_magic == LMV_USER_MAGIC) {
+-			if (rc)
+-				goto finish_req;
+-
+ 			if (lmmsize > sizeof(*ulmv)) {
+ 				rc = -EINVAL;
+ 				goto finish_req;

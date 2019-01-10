@@ -1,0 +1,247 @@
+From 1d2fbade1b658db4386091e7938d9483f7aa4a05 Mon Sep 17 00:00:00 2001
+From: Parinay Kondekar <parinay.kondekar@seagate.com>
+Date: Fri, 2 Dec 2016 01:46:52 +0530
+Subject: [PATCH] LU-1573 recovery: Avoid data corruption for DIO during FOFB
+
+When there is a userland app doing DIO and OST fails over,
+obd->obd_no_transno is set to 1 & last_committed on server
+is not sent to the client.  Thus client is not sure, if the
+req is _committed_ to disk or not. So it removes the req
+from resend queue and adds it to replay queue.
+
+Now trans_no > last_committed, thus after reconnect, as a
+part of recovery process request is replayed. Userland app,
+refills the DIO buffer with different data, thus invalid data
+is committed resulting in corruption.
+
+This change avoids the client replay by dropping the reply to
+the client rather than sending a reply without any transno.
+This ensures the client will resend the RPC before returning
+to userspace instead of putting it in the replay queue, and
+thus avoids the corruption.
+
+The test changes require replay-ost-single test_9 to be modifed
+with an additional write to the file to increase the grants
+available and avoid a sync write.
+
+Seagate-Bug-Id: MRP-542, MRP-2418
+Reviewed-on: http://es-gerrit.xyus.xyratex.com:8080/3358
+
+Change-Id: Ia30783c99e6c16a0c7ab70841eb98ed75dba1de9
+Signed-off-by: Alexey Lyashkov <alexey.lyashkov@seagate.com>
+Signed-off-by: Parinay Kondekar <parinay.kondekar@seagate.com>
+Signed-off-by: Andrew Perepechko <andrew.perepechko@seagate.com>
+Signed-off-by: James Nunez <james.a.nunez@intel.com>
+Reviewed-by: Alexander Zarochentsev <alexander.zarochentsev@seagate.com>
+Tested-by: Alexander Lezhoev <alexander.lezhoev@seagate.com>
+Reviewed-by: Vitaly Fertman <vitaly.fertman@seagate.com>
+Reviewed-on: https://review.whamcloud.com/16680
+Tested-by: Jenkins
+Tested-by: Maloo <hpdd-maloo@intel.com>
+Reviewed-by: Andreas Dilger <andreas.dilger@intel.com>
+Reviewed-by: Bob Glossman <bob.glossman@intel.com>
+Reviewed-by: John L. Hammond <john.hammond@intel.com>
+---
+ lustre/target/tgt_handler.c       |  20 ++++--
+ lustre/tests/replay-ost-single.sh |   4 ++
+ lustre/tests/replay-single.sh     | 114 +++++++++++++++++++++++++++++-
+ 3 files changed, 131 insertions(+), 7 deletions(-)
+
+diff --git a/lustre/target/tgt_handler.c b/lustre/target/tgt_handler.c
+index 872d7cc247..81aa6f4b32 100644
+--- a/lustre/target/tgt_handler.c
++++ b/lustre/target/tgt_handler.c
+@@ -1971,6 +1971,7 @@ int tgt_brw_write(struct tgt_session_info *tsi)
+ 	cksum_type_t		 cksum_type = OBD_CKSUM_CRC32;
+ 	bool			 no_reply = false, mmap;
+ 	struct tgt_thread_big_cache *tbc = req->rq_svc_thread->t_data;
++	bool wait_sync = false;
+ 
+ 	ENTRY;
+ 
+@@ -2138,6 +2139,12 @@ skip_transfer:
+ 		 * has timed out the request already */
+ 		no_reply = true;
+ 
++	for (i = 0; i < niocount; i++) {
++		if (!(local_nb[i].lnb_flags & OBD_BRW_ASYNC)) {
++			wait_sync = true;
++			break;
++		}
++	}
+ 	/*
+ 	 * Disable sending mtime back to the client. If the client locked the
+ 	 * whole object, then it has already updated the mtime on its side,
+@@ -2171,15 +2178,16 @@ out_lock:
+ 	if (desc)
+ 		ptlrpc_free_bulk(desc);
+ out:
+-	if (no_reply) {
++	if (unlikely(no_reply || (exp->exp_obd->obd_no_transno && wait_sync))) {
+ 		req->rq_no_reply = 1;
+ 		/* reply out callback would free */
+ 		ptlrpc_req_drop_rs(req);
+-		LCONSOLE_WARN("%s: Bulk IO write error with %s (at %s), "
+-			      "client will retry: rc %d\n",
+-			      exp->exp_obd->obd_name,
+-			      obd_uuid2str(&exp->exp_client_uuid),
+-			      obd_export_nid2str(exp), rc);
++		if (!exp->exp_obd->obd_no_transno)
++			LCONSOLE_WARN("%s: Bulk IO write error with %s (at %s),"
++				      " client will retry: rc = %d\n",
++				      exp->exp_obd->obd_name,
++				      obd_uuid2str(&exp->exp_client_uuid),
++				      obd_export_nid2str(exp), rc);
+ 	}
+ 	memory_pressure_clr();
+ 	RETURN(rc);
+diff --git a/lustre/tests/replay-ost-single.sh b/lustre/tests/replay-ost-single.sh
+index 5bf861081b..07ce0c3166 100755
+--- a/lustre/tests/replay-ost-single.sh
++++ b/lustre/tests/replay-ost-single.sh
+@@ -396,6 +396,10 @@ test_9() {
+ 	[ $(lustre_version_code ost1) -ge $(version_code 2.6.54) ] ||
+ 		{ skip "Need OST version at least 2.6.54"; return; }
+ 	$SETSTRIPE -i 0 -c 1 $DIR/$tfile || error "setstripe failed"
++
++	# LU-1573 - Add duplicate write to generate grants
++	dd if=/dev/zero of=$DIR/$tfile count=1 bs=1M > /dev/null ||
++		error "First write failed"
+ 	replay_barrier ost1
+ 	# do IO
+ 	dd if=/dev/zero of=$DIR/$tfile count=1 bs=1M > /dev/null ||
+diff --git a/lustre/tests/replay-single.sh b/lustre/tests/replay-single.sh
+index 13a28a087c..d3fc511e9b 100755
+--- a/lustre/tests/replay-single.sh
++++ b/lustre/tests/replay-single.sh
+@@ -2265,7 +2265,7 @@ test_70e () {
+ 		while true; do
+ 			mrename $DIR/$tdir/test_0/a $DIR/$tdir/test_1/b > \
+ 						/dev/null || {
+-				echo "a->b fails" 
++				echo "a->b fails"
+ 				break;
+ 			}
+ 
+@@ -2302,6 +2302,118 @@ test_70e () {
+ }
+ run_test 70e "rename cross-MDT with random fails"
+ 
++test_70f_write_and_read(){
++	local srcfile=$1
++	local stopflag=$2
++	local client
++
++	echo "Write/read files in: '$DIR/$tdir', clients: '$CLIENTS' ..."
++	for client in ${CLIENTS//,/ }; do
++		[ -f $stopflag ] || return
++
++		local tgtfile=$DIR/$tdir/$tfile.$client
++		do_node $client dd $DD_OPTS bs=1M count=10 if=$srcfile \
++			of=$tgtfile 2>/dev/null ||
++			error "dd $DD_OPTS bs=1M count=10 if=$srcfile " \
++			      "of=$tgtfile failed on $client, rc=$?"
++	done
++
++	local prev_client=$(echo ${CLIENTS//,/ } | awk '{ print $NF }')
++	local index=0
++
++	for client in ${CLIENTS//,/ }; do
++		[ -f $stopflag ] || return
++
++		# flush client cache in case test is running on only one client
++		# do_node $client cancel_lru_locks osc
++		do_node $client $LCTL set_param ldlm.namespaces.*.lru_size=clear
++
++		tgtfile=$DIR/$tdir/$tfile.$client
++		local md5=$(do_node $prev_client "md5sum $tgtfile")
++		[ ${checksum[$index]// */} = ${md5// */} ] ||
++			error "$tgtfile: checksum doesn't match on $prev_client"
++		index=$((index + 1))
++		prev_client=$client
++	done
++}
++
++test_70f_loop(){
++	local srcfile=$1
++	local stopflag=$2
++	DD_OPTS=
++
++	mkdir -p $DIR/$tdir || error "cannot create $DIR/$tdir directory"
++	$SETSTRIPE -c -1 $DIR/$tdir || error "cannot $SETSTRIPE $DIR/$tdir"
++
++	touch $stopflag
++	while [ -f $stopflag ]; do
++		test_70f_write_and_read $srcfile $stopflag
++		# use direct IO and buffer cache in turns if loop
++		[ -n "$DD_OPTS" ] && DD_OPTS="" || DD_OPTS="oflag=direct"
++	done
++}
++
++test_70f_cleanup() {
++	trap 0
++	rm -f $TMP/$tfile.stop
++	do_nodes $CLIENTS rm -f $TMP/$tfile
++	rm -f $DIR/$tdir/$tfile.*
++}
++
++test_70f() {
++#	[ x$ost1failover_HOST = x$ost_HOST ] &&
++#		{ skip "Failover host not defined" && return; }
++#	[ -z "$CLIENTS" ] &&
++#		{ skip "CLIENTS are not specified." && return; }
++#	[ $CLIENTCOUNT -lt 2 ] &&
++#		{ skip "Need 2 or more clients, have $CLIENTCOUNT" && return; }
++
++	echo "mount clients $CLIENTS ..."
++	zconf_mount_clients $CLIENTS $MOUNT
++
++	local srcfile=$TMP/$tfile
++	local client
++	local index=0
++
++	trap test_70f_cleanup EXIT
++	# create a different source file local to each client node so we can
++	# detect if the file wasn't written out properly after failover
++	do_nodes $CLIENTS dd bs=1M count=10 if=/dev/urandom of=$srcfile \
++		2>/dev/null || error "can't create $srcfile on $CLIENTS"
++	for client in ${CLIENTS//,/ }; do
++		checksum[$index]=$(do_node $client "md5sum $srcfile")
++		index=$((index + 1))
++	done
++
++	local duration=120
++	[ "$SLOW" = "no" ] && duration=60
++	# set duration to 900 because it takes some time to boot node
++	[ "$FAILURE_MODE" = HARD ] && duration=900
++
++	local stopflag=$TMP/$tfile.stop
++	test_70f_loop $srcfile $stopflag &
++	local pid=$!
++
++	local elapsed=0
++	local num_failovers=0
++	local start_ts=$SECONDS
++	while [ $elapsed -lt $duration ]; do
++		sleep 3
++		replay_barrier ost1
++		sleep 1
++		num_failovers=$((num_failovers + 1))
++		log "$TESTNAME failing OST $num_failovers times"
++		fail ost1
++		sleep 2
++		elapsed=$((SECONDS - start_ts))
++	done
++
++	rm -f $stopflag
++	wait $pid
++	test_70f_cleanup
++}
++run_test 70f "OSS O_DIRECT recovery with $CLIENTCOUNT clients"
++
+ cleanup_71a() {
+ 	trap 0
+ 	kill -9 $mkdir_71a_pid
+-- 
+2.17.1
+
